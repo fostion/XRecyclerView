@@ -17,17 +17,17 @@ public class XRecyclerView extends RecyclerView {
 
     private boolean isLoadingData = false;
     private boolean isNoMore = false;
-    private int mRefreshProgressStyle = ProgressStyle.SysProgress;
-    private int mLoadingMoreProgressStyle = ProgressStyle.SysProgress;
+    private int mRefreshProgressStyle = ProgressStyle.BallPulse;
+    private int mLoadingMoreProgressStyle = ProgressStyle.BallSpinFadeLoader;
     private ArrayList<View> mHeaderViews = new ArrayList<>();
     private ArrayList<View> mFootViews = new ArrayList<>();
-    private Adapter mWrapAdapter;
+    private WrapAdapter mWrapAdapter;
     private float mLastY = -1;
     private static final float DRAG_RATE = 3;
     private LoadingListener mLoadingListener;
     private ArrowRefreshHeader mRefreshHeader;
-    private boolean pullRefreshEnabled = true;
-    private boolean loadingMoreEnabled = true;
+    private boolean pullRefreshEnabled = true;//默认有下拉更新
+    private boolean loadingMoreEnabled = false;//默认没有加载更多
     private static final int TYPE_REFRESH_HEADER = -5;
     private static final int TYPE_NORMAL = 0;
     private static final int TYPE_FOOTER = -3;
@@ -37,7 +37,6 @@ public class XRecyclerView extends RecyclerView {
     //adapter没有数据的时候显示,类似于listView的emptyView
     private View mEmptyView;
     private final RecyclerView.AdapterDataObserver mDataObserver = new DataObserver();
-
 
     public XRecyclerView(Context context) {
         this(context, null);
@@ -55,14 +54,18 @@ public class XRecyclerView extends RecyclerView {
     private void init() {
         if (pullRefreshEnabled) {
             ArrowRefreshHeader refreshHeader = new ArrowRefreshHeader(getContext());
+            mHeaderViews.clear();
             mHeaderViews.add(0, refreshHeader);
             mRefreshHeader = refreshHeader;
             mRefreshHeader.setProgressStyle(mRefreshProgressStyle);
         }
-        LoadingMoreFooter footView = new LoadingMoreFooter(getContext());
-        footView.setProgressStyle(mLoadingMoreProgressStyle);
-        addFootView(footView);
-        mFootViews.get(0).setVisibility(GONE);
+
+        if (loadingMoreEnabled) {
+            LoadingMoreFooter footView = new LoadingMoreFooter(getContext());
+            footView.setProgressStyle(mLoadingMoreProgressStyle);
+            addFootView(footView);
+            mFootViews.get(0).setVisibility(GONE);
+        }
     }
 
     public void addHeaderView(View view) {
@@ -83,20 +86,25 @@ public class XRecyclerView extends RecyclerView {
 
     public void loadMoreComplete() {
         isLoadingData = false;
-        View footView = mFootViews.get(0);
-        if (footView instanceof LoadingMoreFooter) {
-            ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_COMPLETE);
-        } else {
-            footView.setVisibility(View.GONE);
+        if (mFootViews.size() > 0) {
+            View footView = mFootViews.get(0);
+            if (footView instanceof LoadingMoreFooter) {
+                ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_COMPLETE);
+            } else {
+                footView.setVisibility(View.GONE);
+            }
         }
     }
 
-    public void setNoMore(boolean noMore){
+    public void setNoMore(boolean noMore) {
         this.isNoMore = noMore;
-        View footView = mFootViews.get(0);
-        ((LoadingMoreFooter) footView).setState(this.isNoMore ? LoadingMoreFooter.STATE_NOMORE:LoadingMoreFooter.STATE_COMPLETE);
+        if (mFootViews.size() > 0) {
+            View footView = mFootViews.get(0);
+            ((LoadingMoreFooter) footView).setState(this.isNoMore ? LoadingMoreFooter.STATE_NOMORE : LoadingMoreFooter.STATE_COMPLETE);
+        }
     }
-    public void reset(){
+
+    public void reset() {
         setNoMore(false);
         loadMoreComplete();
         refreshComplete();
@@ -104,12 +112,14 @@ public class XRecyclerView extends RecyclerView {
 
     public void noMoreLoading() {
         isLoadingData = false;
-        View footView = mFootViews.get(0);
-        isNoMore = true;
-        if (footView instanceof LoadingMoreFooter) {
-            ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_NOMORE);
-        } else {
-            footView.setVisibility(View.GONE);
+        if (mFootViews.size() > 0) {
+            View footView = mFootViews.get(0);
+            isNoMore = true;
+            if (footView instanceof LoadingMoreFooter) {
+                ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_NOMORE);
+            } else {
+                footView.setVisibility(View.GONE);
+            }
         }
     }
 
@@ -127,8 +137,16 @@ public class XRecyclerView extends RecyclerView {
 
     public void setLoadingMoreEnabled(boolean enabled) {
         loadingMoreEnabled = enabled;
-        if (!enabled && mFootViews.size() > 0) {
-            mFootViews.get(0).setVisibility(GONE);
+        if (enabled) {
+            LoadingMoreFooter footView = new LoadingMoreFooter(getContext());
+            footView.setProgressStyle(mLoadingMoreProgressStyle);
+            addFootView(footView);
+            if (mWrapAdapter != null)//通知数据改变
+                mWrapAdapter.notiDataChange();
+        } else {
+            mFootViews.clear();
+            if (mWrapAdapter != null)//通知数据改变
+                mWrapAdapter.notiDataChange();
         }
     }
 
@@ -188,15 +206,19 @@ public class XRecyclerView extends RecyclerView {
             if (layoutManager.getChildCount() > 0
                     && lastVisibleItemPosition >= layoutManager.getItemCount() - 1 && layoutManager.getItemCount() > layoutManager.getChildCount() && !isNoMore && mRefreshHeader.getState() < ArrowRefreshHeader.STATE_REFRESHING) {
 
-                View footView = mFootViews.get(0);
-                isLoadingData = true;
-                if (footView instanceof LoadingMoreFooter) {
-                    ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_LOADING);
-                } else {
-                    footView.setVisibility(View.VISIBLE);
+                if (mFootViews.size() > 0) {
+                    View footView = mFootViews.get(0);
+                    isLoadingData = true;
+                    if (footView instanceof LoadingMoreFooter) {
+                        ((LoadingMoreFooter) footView).setState(LoadingMoreFooter.STATE_LOADING);
+                    } else {
+                        footView.setVisibility(View.VISIBLE);
+                    }
+                    mLoadingListener.onLoadMore();
                 }
-                mLoadingListener.onLoadMore();
             }
+//            Log.e(" recyclerview结果 ","  layoutManager.getChildCount():" + layoutManager.getChildCount()+"   lastVisibleItemPosition:"+lastVisibleItemPosition+"  layoutManager.getItemCount()"+layoutManager.getItemCount()
+//                    +"   isNoMore:"+isNoMore+"   mRefreshHeader.getState()"+mRefreshHeader.getState());
         }
     }
 
@@ -275,7 +297,7 @@ public class XRecyclerView extends RecyclerView {
 //        return false;
     }
 
-     private class DataObserver extends RecyclerView.AdapterDataObserver {
+    private class DataObserver extends RecyclerView.AdapterDataObserver {
         @Override
         public void onChanged() {
             Adapter<?> adapter = getAdapter();
@@ -324,7 +346,7 @@ public class XRecyclerView extends RecyclerView {
         public void onItemRangeMoved(int fromPosition, int toPosition, int itemCount) {
             mWrapAdapter.notifyItemMoved(fromPosition, toPosition);
         }
-    };
+    }
 
     private class WrapAdapter extends RecyclerView.Adapter<ViewHolder> {
 
@@ -386,6 +408,10 @@ public class XRecyclerView extends RecyclerView {
 
         public int getFootersCount() {
             return mFootViews.size();
+        }
+
+        public void notiDataChange() {
+            adapter.notifyDataSetChanged();
         }
 
         @Override
